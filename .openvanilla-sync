@@ -1,0 +1,5 @@
+source: Open Vanilla
+commit: 747fdbd649467a990e194c57f04b516e39524431
+subject: Site: portal.html matches index.html again (alpha tag, Vanilla Agents)
+paths: realm, hetzner, relay, studio, solo, studio_server.py, server_control.py, openvanilla_server.py, asset_server.py, set_realm.py, authcheck.py, Host a Realm.bat, Play Solo.bat, tools/gm, tools/warfront, tools/relay_smoke.py, tools/sync_patchz.py, docs/P2P_NETWORK.md, docs/NODE_NETWORK.md, docs/manual/11-hosting.md, packaging/workflows/realm-image.yml, packaging/workflows/hotpatch.yml, packaging/workflows/uptime.yml
+Made by dev/sync_repos.py. Edit the source, not this copy.
