@@ -1,5 +1,5 @@
 Open Vanilla 0013: leveling pace on the world server (faster flights, flight paths by level, campfire
-rest, Veteran Mentor quest XP, level-scaled exploration XP, starter items back on abandon), the
+rest, Veteran Mentor quest XP, level-scaled exploration XP, starter items back on abandon when they cannot be farmed), the
 capital training dummies, and the realm's real numbers for the client's tooltips (PZ line, the
 Hearthstone cooldown cleared when it ends, quest XP in the QM line). Every OpenVanilla.Pace.*
 switch is off unless mangosd.conf sets it; see src/game/OpenVanilla/Pace.h.
@@ -84,10 +84,10 @@ index d6c2b0e5e..e92e25ab8 100644
  
 diff --git a/src/game/OpenVanilla/Pace.cpp b/src/game/OpenVanilla/Pace.cpp
 new file mode 100644
-index 000000000..a92e4656d
+index 000000000..8ce41684a
 --- /dev/null
 +++ b/src/game/OpenVanilla/Pace.cpp
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,339 @@
 +/*
 + * Open Vanilla — leveling pace: faster flights, flight paths by level, campfire rest, the Veteran
 + * Mentor quest XP bonus, level-scaled exploration XP, starter items back on abandon (GPLv2, as
@@ -120,6 +120,7 @@ index 000000000..a92e4656d
 +#include <memory>
 +#include <mutex>
 +#include <unordered_map>
++#include <unordered_set>
 +#include <vector>
 +
 +namespace OwPace
@@ -392,15 +393,30 @@ index 000000000..a92e4656d
 +    {
 +        if (!Config().abandonReturnsItem)
 +            return;
-+        // The item that starts this quest (a dropped letter, a strange sigil): only one item can.
++        // The item that starts this quest (a dropped letter, a strange sigil), given back only when
++        // that can't be farmed: it sells for nothing, is soulbound or a quest item (no trading it),
++        // and no creature or object in the world also starts the quest. (A Darkmoon deck sells for
++        // 10 g and isn't used up by accepting: accept, sell, abandon, repeat would print gold.)
 +        static std::unordered_map<uint32, uint32> starters;
 +        static std::once_flag once;
 +        std::call_once(once, []
 +        {
++            std::unordered_set<uint32> elsewhere;              // quests a creature or object starts
++            for (auto const& r : sObjectMgr.GetCreatureQuestRelationsMap())
++                elsewhere.insert(r.second);
++            for (auto itr = sGOStorage.getDataBegin<GameObjectInfo>(); itr < sGOStorage.getDataEnd<GameObjectInfo>(); ++itr)
++            {
++                QuestRelationsMapBounds b = sObjectMgr.GetGOQuestRelationsMapBounds(itr->id);
++                for (auto q = b.first; q != b.second; ++q)
++                    elsewhere.insert(q->second);
++            }
 +            for (uint32 id = 1; id < sItemStorage.GetMaxEntry(); ++id)
 +                if (ItemPrototype const* proto = sItemStorage.LookupEntry<ItemPrototype>(id))
-+                    if (proto->StartQuest)
++                    if (proto->StartQuest && proto->SellPrice == 0
++                        && (proto->Bonding == BIND_WHEN_PICKED_UP || proto->Bonding == BIND_QUEST_ITEM)
++                        && !elsewhere.count(proto->StartQuest))
 +                        starters.emplace(proto->StartQuest, proto->ItemId);
++            sLog.outString("Open Vanilla pace: %u quest-starting items come back when their quest is abandoned", uint32(starters.size()));
 +        });
 +        auto it = starters.find(questId);
 +        if (it == starters.end() || player->HasItemCount(it->second, 1, true))

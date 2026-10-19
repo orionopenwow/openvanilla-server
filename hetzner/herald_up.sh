@@ -17,6 +17,7 @@ curl -fsSL "$RAW/bot/herald_support.py" -o "$DIR/herald_support.py"
 curl -fsSL "$RAW/bot/herald_mod.py" -o "$DIR/herald_mod.py"
 curl -fsSL "$RAW/bot/herald_streams.py" -o "$DIR/herald_streams.py"
 curl -fsSL "$RAW/bot/herald_bridge.py" -o "$DIR/herald_bridge.py"
+curl -fsSL "$RAW/bot/herald_bugs.py" -o "$DIR/herald_bugs.py"       # the bug desk (#bug-reports)
 curl -fsSL "$RAW/bot/herald_quiet.py" -o "$DIR/herald_quiet.py"
 curl -fsSL "$RAW/bot/herald_art.py" -o "$DIR/herald_art.py"
 curl -fsSL "$RAW/bot/herald_autopilot_api.py" -o "$DIR/herald_autopilot_api.py"   # Herald Autopilot + learning
@@ -94,6 +95,10 @@ PY
               GRANT SELECT, UPDATE ON classiccharacters.openvanilla_appeal TO 'herald'@'%';
               GRANT SELECT ON classiccharacters.openvanilla_mod_log TO 'herald'@'%';
               GRANT SELECT ON classiccharacters.openvanilla_mod_note TO 'herald'@'%';" && echo "Moderation desk: report tables granted."
+    fi
+    # Bug desk (herald_bugs.py): reports from the game's bug button, once realm/classicplus/classicplus_bugs.sql has run.
+    if [ "$(sql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='classiccharacters' AND table_name='openvanilla_bug_report'")" = 1 ]; then
+      sql -e "GRANT SELECT, UPDATE ON classiccharacters.openvanilla_bug_report TO 'herald'@'%';" && echo "Bug desk: bug report table granted."
     fi
     # World bridge (herald_bridge.py, docs/DISCORD_BRIDGE.md): guild links, once
     # realm/classicplus/pending/classicplus_world.sql has run (the World log itself is covered by SELECT above).

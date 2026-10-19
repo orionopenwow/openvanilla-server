@@ -35,6 +35,6 @@ RUN cmake -S mangos-classic -B /opt/build \
     && cmake --install /opt/build
 
 FROM ${BASE}
-LABEL dev.openvanilla.patches="wnl-hook,star-pouch,openvanilla-names,pace" \
+LABEL dev.openvanilla.patches="wnl-hook,star-pouch,openvanilla-names,pace,bug-reports" \
       org.opencontainers.image.description="wenilla-realm-mangos + Open Vanilla WNL hook and Star Pouches"
 COPY --from=build /opt/mangos/bin/mangosd /opt/mangos/bin/mangosd

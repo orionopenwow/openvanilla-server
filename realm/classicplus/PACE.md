@@ -28,7 +28,7 @@ with the next realm image (`realm-image` workflow).
 | Blessings 15 min | the single-target Blessings (Might, Wisdom, Kings, Salvation, Light, Sanctuary; 22 ranks) use the Greater Blessings' duration. Shaman weapon imbues already last 30 min in 1.12.1 |
 | Weapon skill x4 | `SkillGain.Weapon = 4` |
 | Exploration scales | a new area gives at least 1% of the XP your level needs (stock gives a small fixed amount); grey areas keep the stock falloff (`ExploreXpPct 1`) |
-| No abandon penalty | abandoning a quest that a dropped item started gives the item back (`AbandonReturnsItem 1`); scripted escort givers (Kernobee, Willix, Belnistrasz, Windsor...) are back 60 s after a failed escort instead of up to 24 h (67 spawns) |
+| No abandon penalty | abandoning a quest that a dropped item started gives the item back (`AbandonReturnsItem 1`) when it can't be farmed: it sells for nothing, it's soulbound or a quest item, and no NPC or object also starts the quest (so no Darkmoon-deck gold loop); scripted escort givers (Kernobee, Willix, Belnistrasz, Windsor...) are back 60 s after a failed escort instead of up to 24 h (67 spawns) |
 | Dungeon dispatch boards | a board 3 yd inside every entrance of the 19 dungeons (31 boards) gives and takes every quest sorted under that dungeon that someone in the world gives; prerequisites, races and levels still apply. Quests only an item starts stay with the item |
 | Training dummies | Level 60, Level 50 and Your level dummies 5 yd in front of the weapon master in Stormwind, Ironforge, Darnassus, Orgrimmar, Thunder Bluff and the Undercity. They never attack or die; stop hitting for 6 s and they whisper damage, time, hits and DPS. "Your level" takes your level and that level's armor |
 
