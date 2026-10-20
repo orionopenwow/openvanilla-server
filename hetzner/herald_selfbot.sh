@@ -43,17 +43,32 @@ api_allowed() {
 }
 case "${1:-status}" in
   on)
-    conf_set aiplayerbot.conf AiPlayerbot.SelfBotLevel=2
+    # The bot AI itself must be running. When it was off (no realm bots), switch it on with no
+    # random bots at all, so the only bots are characters their owners hand to Herald.
+    if ! conf_get aiplayerbot.conf | grep -Eq '^\s*AiPlayerbot\.Enabled\s*=\s*1'; then
+      conf_set aiplayerbot.conf AiPlayerbot.Enabled=1 AiPlayerbot.MinRandomBots=0 AiPlayerbot.MaxRandomBots=0
+      echo "Bot AI switched on (no realm bots: MinRandomBots = MaxRandomBots = 0)."
+    fi
+    # Herald's leveling profile (realm bots are off, so these only shape characters handed to Herald):
+    # no cheats on a player's character (the core's default gives alt bots free flights and items),
+    # talents, quest rewards, upgrades and training on their own, and quests picked and done.
+    conf_set aiplayerbot.conf AiPlayerbot.SelfBotLevel=2 AiPlayerbot.BotCheats=none \
+      AiPlayerbot.AutoPickTalents=full AiPlayerbot.AutoPickReward=yes AiPlayerbot.AutoEquipUpgradeLoot=1 \
+      AiPlayerbot.AutoTrainSpells=yes AiPlayerbot.AutoDoQuests=1
+    # The bot AI reads ../etc/aiplayerbot.conf from mangosd's cwd, not the -p path: link it on images
+    # built before realm/mangos/Dockerfile did (the bot tables: hetzner/playerbots_db.sh).
+    docker compose exec -T -u 0 mangosd sh -c '[ -e /opt/mangos/etc/aiplayerbot.conf ] || ln -s /config/aiplayerbot.conf /opt/mangos/etc/aiplayerbot.conf'
     api_allowed 1
-    docker compose restart mangosd
+    docker compose stop -t 120 mangosd && docker compose up -d mangosd
     echo "Herald is on: players can hand their character over in game (Herald button by the minimap, or .bot self)." ;;
   off)
     conf_set aiplayerbot.conf AiPlayerbot.SelfBotLevel=0
     api_allowed 0
-    docker compose restart mangosd
+    docker compose stop -t 120 mangosd && docker compose up -d mangosd
     echo "Herald is off: nobody can hand their character to the bot AI." ;;
   status)
     conf_get aiplayerbot.conf | grep -E '^\s*#?\s*AiPlayerbot\.SelfBotLevel' || echo "SelfBotLevel not set (the core's default: GMs only)"
+    conf_get aiplayerbot.conf | grep -E '^\s*AiPlayerbot\.(Enabled|MinRandomBots|MaxRandomBots)\s*=' || echo "AiPlayerbot.Enabled not set (off)"
     grep '^AUTOPILOT_ALLOWED=' /etc/openvanilla-herald.env 2>/dev/null || true ;;
   *) echo "usage: bash herald_selfbot.sh on|off|status"; exit 1 ;;
 esac

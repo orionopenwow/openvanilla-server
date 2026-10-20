@@ -71,23 +71,33 @@ if [ -d "$REALM" ] && docker info >/dev/null 2>&1; then
         [ "$(sql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='classiccharacters' AND table_name='$t'")" = 1 ] &&
           sql -e "GRANT UPDATE, DELETE ON classiccharacters.$t TO 'herald'@'%';"
       done
-      read -r S V < <(python3 - "$SOAPP" <<'PY'
+      printf 'SUPPORT_DB_HOST=127.0.0.1\nSUPPORT_DB_PORT=13306\nSUPPORT_DB_USER=herald\nSUPPORT_DB_PASS=%s\nCHARACTERS_DATABASE=classiccharacters\nSOAP_URL=http://127.0.0.1:17878/\nSOAP_USER=HELPDESK\nSOAP_PASS=%s\n' \
+        "$DBP" "$SOAPP" >> /etc/openvanilla-herald.env
+      echo "Support desk: database login made."
+    fi
+    # Every run: the HELPDESK console account matches the password in the env file. A fresh or restored realm
+    # database loses HELPDESK while /etc/openvanilla-herald.env keeps its password; then every console call from
+    # Herald is refused (Discord -> World chat, ticket fixes) while its database reads (World -> Discord) still work.
+    SOAPP=$(sed -n 's/^SOAP_PASS=//p' /etc/openvanilla-herald.env | tail -n 1)
+    SOAPU=$(sed -n 's/^SOAP_USER=//p' /etc/openvanilla-herald.env | tail -n 1)
+    if [ -n "$SOAPP" ] && [ "${SOAPU:-HELPDESK}" = HELPDESK ]; then
+      read -r S V < <(OV_SOAPP="$SOAPP" python3 - <<'PY'
 import hashlib, os, sys
 N = int("894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7", 16)
 salt = os.urandom(32)
-h1 = hashlib.sha1(f"HELPDESK:{sys.argv[1].upper()}".encode()).digest()
+h1 = hashlib.sha1(f"HELPDESK:{os.environ['OV_SOAPP'].upper()}".encode()).digest()
 x = int.from_bytes(hashlib.sha1(salt[::-1] + h1).digest(), "little")
 print(salt.hex().upper(), pow(7, x, N).to_bytes(32, "big").hex().upper())
 PY
 )
-      sql classicrealmd -e "INSERT INTO account (username, gmlevel, v, s) VALUES ('HELPDESK', 3, '$V', '$S')
-                            ON DUPLICATE KEY UPDATE gmlevel = 3, v = VALUES(v), s = VALUES(s)"
-      printf 'SUPPORT_DB_HOST=127.0.0.1\nSUPPORT_DB_PORT=13306\nSUPPORT_DB_USER=herald\nSUPPORT_DB_PASS=%s\nCHARACTERS_DATABASE=classiccharacters\nSOAP_URL=http://127.0.0.1:17878/\nSOAP_USER=HELPDESK\nSOAP_PASS=%s\n' \
-        "$DBP" "$SOAPP" >> /etc/openvanilla-herald.env
-      echo "Support desk: database login and HELPDESK console account made."
+      printf "INSERT INTO account (username, gmlevel, v, s) VALUES ('HELPDESK', 3, '%s', '%s') ON DUPLICATE KEY UPDATE gmlevel = 3, v = VALUES(v), s = VALUES(s);\n" "$V" "$S" | sql classicrealmd
+      echo "Support desk: HELPDESK console account checked (GM 3, password from the env file)."
     fi
     # Herald Autopilot lists a signed-in player's characters: account id and name only.
     sql -e "GRANT SELECT (id, username) ON classicrealmd.account TO 'herald'@'%';" 2>/dev/null || true
+    # Herald Autopilot's bags and quest log show names, not numbers: item and quest names only.
+    sql -e "GRANT SELECT (entry, name, Quality) ON classicmangos.item_template TO 'herald'@'%';
+            GRANT SELECT (entry, Title) ON classicmangos.quest_template TO 'herald'@'%';" 2>/dev/null || true
     # Moderation desk (herald_mod.py): reports, appeals and the spam filter's log, once their tables exist
     # (realm/classicplus/pending/classicplus_reports.sql). Re-run this script after adding them.
     if [ "$(sql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='classiccharacters' AND table_name='openvanilla_report'")" = 1 ]; then
@@ -101,7 +111,7 @@ PY
       sql -e "GRANT SELECT, UPDATE ON classiccharacters.openvanilla_bug_report TO 'herald'@'%';" && echo "Bug desk: bug report table granted."
     fi
     # World bridge (herald_bridge.py, docs/DISCORD_BRIDGE.md): guild links, once
-    # realm/classicplus/pending/classicplus_world.sql has run (the World log itself is covered by SELECT above).
+    # realm/classicplus/classicplus_world.sql has run (the World log itself is covered by SELECT above).
     if [ "$(sql -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='classiccharacters' AND table_name='openvanilla_guild_bridge'")" = 1 ]; then
       sql -e "GRANT SELECT, INSERT, UPDATE, DELETE ON classiccharacters.openvanilla_guild_bridge TO 'herald'@'%';
               GRANT SELECT, DELETE ON classiccharacters.openvanilla_guild_link_code TO 'herald'@'%';" && echo "World bridge: guild link tables granted."
@@ -124,7 +134,8 @@ addenv ART_URL "$RAW/bot"
 addenv ART_POLL_SEC 300
 addenv MOD_AUTO 1
 # Herald Autopilot's realm side (bot/herald_autopilot_api.py): learning from opted-in players, and the
-# autopilot API. Autoplay stays OFF until AUTOPILOT_ALLOWED=1 (it needs the .wnl autopilot command).
+# autopilot API. Autoplay stays OFF until AUTOPILOT_ALLOWED=1 (hetzner/herald_selfbot.sh on sets it, with
+# AiPlayerbot.SelfBotLevel = 2; the API drives the character with .rndbot cmd over the console).
 REALM_DOMAIN=$( [ -f "$REALM_ENV" ] && sed -n 's/^REALM_DOMAIN=//p' "$REALM_ENV" | tail -1 )
 DOCKER_IP=$(ip -4 addr show docker0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -1)
 addenv AUTOPILOT_ALLOWED 0

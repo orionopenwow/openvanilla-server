@@ -46,12 +46,12 @@ PY
 
 say "1/6 Downloading the Open Vanilla files"
 mkdir -p "$CP"
-for f in patch-Z.MPQ bridge.js bridge.js.br bridge.js.gz addons-loader.js classicplus_races.sql classicplus_weapons.sql classicplus_starpouch.sql classicplus_retired_vendor_cleanup.sql classicplus_combo_census.sql classicplus_characters.sql classicplus_classquests.sql classicplus_starpouch_money.sql classicplus_xp_rollback.sql classicplus_trainers.sql classicplus_achievements.sql classicplus_pace.sql classicplus_bugs.sql classicplus_world_models.sql classicplus_world_models.json apply_models_dbc.py openvanilla_gameplay_conf.sh gen_outfits.py fix_skillraceclassinfo.py; do
+for f in patch-Z.MPQ bridge.js bridge.js.br bridge.js.gz addons-loader.js classicplus_races.sql classicplus_weapons.sql classicplus_starpouch.sql classicplus_retired_vendor_cleanup.sql classicplus_combo_census.sql classicplus_characters.sql classicplus_classquests.sql classicplus_starpouch_money.sql classicplus_xp_rollback.sql classicplus_trainers.sql classicplus_achievements.sql classicplus_pace.sql classicplus_bugs.sql classicplus_herald_ai.sql classicplus_world.sql classicplus_world_models.sql classicplus_world_models.json apply_models_dbc.py openvanilla_gameplay_conf.sh gen_outfits.py fix_skillraceclassinfo.py; do
   curl -fsSL "$RAW/realm/classicplus/$f" -o "$CP/$f.new" && mv "$CP/$f.new" "$CP/$f"
 done
 # page layer (account dock, login backdrop, owdiag), bind-mounted into the realm at /app/www/ow
 mkdir -p "$CP/www"
-for f in openvanilla.js touch.js owdiag.js owdiag-checks.js owdiag-capture.js owdiag-load.js sw.js sw-register.js prefetch.js stages.js syncread.js ahead.js wmo.js input.js warmup.js combos.json ow-corner-logo.webp ow-corner-logo@2x.webp login-backdrop.js login-backdrop.webp login-backdrop.webm login-backdrop.mp4 ow-signin.webp ow-signin.mp4 ow-signin.webm Cinzel-SemiBold.woff2 Cinzel-SemiBold.ttf Cinzel-OFL.txt ow-corner-tl.png ow-corner-tr.png ow-corner-bl.png ow-corner-br.png ow-divider.png ow-dragon-l.webp ow-dragon-r.webp nowplaying.js nowplaying.json nowplaying-callback.html creator-link.html; do
+for f in openvanilla.js workshop.js touch.js owdiag.js owdiag-checks.js owdiag-capture.js owdiag-load.js sw.js sw-register.js prefetch.js stages.js syncread.js ahead.js wmo.js input.js warmup.js combos.json ow-corner-logo.webp ow-corner-logo@2x.webp login-backdrop.js login-backdrop.webp login-backdrop.webm login-backdrop.mp4 ow-signin.webp ow-signin.mp4 ow-signin.webm Cinzel-SemiBold.woff2 Cinzel-SemiBold.ttf Cinzel-OFL.txt ow-corner-tl.png ow-corner-tr.png ow-corner-bl.png ow-corner-br.png ow-divider.png ow-dragon-l.webp ow-dragon-r.webp nowplaying.js nowplaying.json nowplaying-callback.html creator-link.html; do
   curl -fsSL "$RAW/realm/www/$f" -o "$CP/www/$f.new" && mv "$CP/www/$f.new" "$CP/www/$f"
 done
 mkdir -p "$CP/www/manifests"
@@ -63,7 +63,7 @@ if curl -fsSL "$RAW/realm/www/manifests/index.json" -o "$CP/www/manifests/index.
 fi
 find "$CP/www" -type f -exec chmod 644 {} +; find "$CP/www" -type d -exec chmod 755 {} +
 # helper scripts: server weapon-skill DBC fix and push-to-deploy hot updates
-for f in openvanilla_server_dbc.sh openvanilla_server_models.sh openvanilla_hotpatch.sh openvanilla_rename_tables.sh; do
+for f in openvanilla_server_dbc.sh openvanilla_server_models.sh openvanilla_hotpatch.sh openvanilla_rename_tables.sh ov_gm.sh; do
   curl -fsSL "$RAW/hetzner/$f" -o "$CP/$f.new" && mv "$CP/$f.new" "$CP/$f"
 done
 find "$CP" -maxdepth 1 -type f -exec chmod 644 {} +; chmod 755 "$CP"/*.sh; ls -la "$CP"
@@ -104,14 +104,14 @@ MYSQL_PWD="$DB_ROOT_PASSWORD" docker compose exec -T -e MYSQL_PWD mariadb mariad
 echo "Retired race/class pairs still in use (kept, never deleted):"
 MYSQL_PWD="$DB_ROOT_PASSWORD" docker compose exec -T -e MYSQL_PWD mariadb mariadb -uroot classicmangos < "$CP/classicplus_combo_census.sql" || true
 # The XP curve stays stock (classicplus_xp_rollback.sql undoes the gentler curve this once ran):
-# the pace comes from quest XP x1.5, rested and classicplus_pace.sql (realm/mangos/0013).
+# the pace comes from XP x1.5 (kills and quests), rested and classicplus_pace.sql (realm/mangos/0013).
 for f in classicplus_characters.sql classicplus_classquests.sql classicplus_starpouch_money.sql \
          classicplus_xp_rollback.sql classicplus_trainers.sql classicplus_achievements.sql classicplus_pace.sql \
-         classicplus_bugs.sql; do
+         classicplus_bugs.sql classicplus_herald_ai.sql classicplus_world.sql; do
   echo "applying $f"
   MYSQL_PWD="$DB_ROOT_PASSWORD" docker compose exec -T -e MYSQL_PWD mariadb mariadb -uroot classicmangos < "$CP/$f"
 done
-# the pace (quest XP x1.5, rested x5 at inns and capitals, weapon skill x4, OpenVanilla.Pace.*) and
+# the pace (XP x1.5 from kills and quests, rested x5 at inns and capitals, weapon skill x4, OpenVanilla.Pace.*) and
 # the OpenVanilla.* switches in mangosd.conf (rollback: bash ... rollback)
 OW_REALM_DIR="$REALM_DIR" bash "$CP/openvanilla_gameplay_conf.sh"
 MYSQL_PWD="$DB_ROOT_PASSWORD" docker compose exec -T -e MYSQL_PWD mariadb mariadb -uroot classicmangos \
@@ -148,6 +148,12 @@ if ! ROLES=$(curl -fsS -H "Authorization: Bot $DISCORD_BOT_TOKEN" "https://disco
   ROLES='[]'
 fi
 setenv SIGNUP_MODE "${SIGNUP_MODE:-open}"
+# The login queue (realm patch 0022), on for launch: at most QUEUE_WORLD players in the world (80); everyone
+# else waits in line on the play page, which shows what to do meanwhile (realm/www/openvanilla.js queueExtras).
+# A value already in .env wins; QUEUE_ENABLED=0 there turns the line off. mangosd's PlayerLimit stays above it.
+grep -q '^QUEUE_ENABLED=' .env || setenv QUEUE_ENABLED 1
+grep -q '^QUEUE_WORLD=' .env || setenv QUEUE_WORLD 80
+echo "Login queue: QUEUE_ENABLED=$(sed -n 's/^QUEUE_ENABLED=//p' .env), QUEUE_WORLD=$(sed -n 's/^QUEUE_WORLD=//p' .env) in the world at once"
 # open sign-up: a new player signs in on the website and plays at once (patch 0021); waves keep the role gate
 if [ "$SIGNUP_MODE" = open ]; then setenv DISCORD_OPEN_SIGNUP 1; else setenv DISCORD_OPEN_SIGNUP 0; fi
 read -r REQ GRANT <<<"$(python3 - "$ROLES" "$SIGNUP_MODE" <<'PY'
@@ -165,6 +171,20 @@ chmod 600 .env
 echo "Discord app $DISCORD_CLIENT_ID · server $DISCORD_GUILD_ID · sign-ups: $SIGNUP_MODE · role gate: $([ "$REQ" != "-" ] && echo on || echo 'off (anyone in the server can sign in)')"
 fi
 
+# The first step that disconnects anyone is next (the realm service carries browser players, then
+# the world server restarts): warn the players in chat and on screen first, 5 minutes by default
+# (OW_WARN_MIN=10 for ten, 0 for none; skipped when nobody is online). "bash ov_gm.sh cancel" in
+# another window calls it off, and the update stops here with nobody disconnected.
+if [ "$STAGING" != 1 ] && [ "${OW_WARN_MIN:-5}" != 0 ]; then
+  say "Warning the players: restart in ${OW_WARN_MIN:-5} minute(s)"
+  if ! OW_REALM_DIR="$REALM_DIR" bash "$CP/ov_gm.sh" warn "${OW_WARN_MIN:-5}" "an update"; then
+    echo "The countdown was called off (or the GM tool failed): the update stops here and nobody was disconnected. Run it again when ready."
+    # the realm and the world server are still running: leave them be (the EXIT trap would recreate
+    # the realm service on this run's .env and drop every browser player)
+    trap - EXIT
+    exit 1
+  fi
+fi
 say "5/6 Realm service: Open Vanilla image + addon loader"
 [ -f compose.override.yaml ] && cp compose.override.yaml "compose.override.yaml.bak.$(date +%s)"
 if docker pull -q "$IMAGE" >/dev/null 2>&1; then REALM_IMAGE="$IMAGE"; else
@@ -294,6 +314,10 @@ fi
 if [ "$STAGING" != 1 ] && [ -e /opt/openvanilla-relay/relay.env ] && [ -e /opt/openvanilla-relay/Caddyfile.relay ]; then
   cat /opt/openvanilla-relay/Caddyfile.relay >> "$CP/Caddyfile"
 fi
+# Vanilla Agents browser access (hetzner/agents_relay_up.sh), when installed, is reached through this Caddy too.
+if [ "$STAGING" != 1 ] && [ -e /opt/vanilla-agents-relay/Caddyfile.agents ]; then
+  cat /opt/vanilla-agents-relay/Caddyfile.agents >> "$CP/Caddyfile"
+fi
 if [ "$STAGING" = 1 ]; then
   CADDY_BLOCK=""
   LIVEVOL=$(docker volume ls -q --filter "label=com.docker.compose.project=wenilla-realm" --filter "label=com.docker.compose.volume=gamedata" | head -1)
@@ -333,10 +357,13 @@ services:
       DISCORD_GRANT_ROLE_ID: \${DISCORD_GRANT_ROLE_ID:-}
       DISCORD_INVITE_URL: \${DISCORD_INVITE_URL:-}
       DISCORD_OPEN_SIGNUP: \${DISCORD_OPEN_SIGNUP:-0}
-      # login queue (patch 0022): off until QUEUE_ENABLED=1 in .env; turn it on after a staging test
-      QUEUE_ENABLED: \${QUEUE_ENABLED:-0}
+      # Google sign-in (patch 0027): on when both are in .env (hetzner/google_signin.sh)
+      GOOGLE_CLIENT_ID: \${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: \${GOOGLE_CLIENT_SECRET:-}
+      # login queue (patch 0022): on for launch, 80 in the world at once (set above; .env wins)
+      QUEUE_ENABLED: \${QUEUE_ENABLED:-1}
       QUEUE_DOWNLOADS: \${QUEUE_DOWNLOADS:-25}
-      QUEUE_WORLD: \${QUEUE_WORLD:-120}
+      QUEUE_WORLD: \${QUEUE_WORLD:-80}
       # guest play (patch 0017): 1 = on even with the Discord role gate (this realm wants guests), 0 = off
       OPENVANILLA_GUESTS: \${OPENVANILLA_GUESTS:-1}
       OPENVANILLA_GUEST_DAILY_MAX: \${OPENVANILLA_GUEST_DAILY_MAX:-}
@@ -372,7 +399,7 @@ bash "$CP/openvanilla_server_dbc.sh" || true
 # server copies of the model tables, so mangosd knows every ported model (exit 1 = up to date)
 bash "$CP/openvanilla_server_models.sh" || true
 
-say "6/6 Restarting the world server (saves every character; ~3 minutes to come back)"
+say "6/6 Restarting the world server (saves every character; about a minute to come back)"
 docker compose up -d --force-recreate mangosd   # one restart, on the new image when there is one
 for i in $(seq 1 60); do
   s=$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q mangosd)" 2>/dev/null || echo starting)
