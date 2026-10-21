@@ -1,5 +1,5 @@
 source: Open Vanilla
-commit: be17c5ea697427073bdfea6471d3ae03e2507c50
-subject: Release 1.34.0
+commit: c50bd98dab5817c8b86344cfc3fb63e106730088
+subject: Realm patches 0033-0034: Herald no longer goes AFK or through hills; Alt+Enter full screen
 paths: realm, hetzner, relay, studio, solo, studio_server.py, server_control.py, openvanilla_server.py, asset_server.py, set_realm.py, authcheck.py, Host a Realm.bat, Play Solo.bat, tools/gm, tools/warfront, tools/relay_smoke.py, tools/sync_patchz.py, docs/P2P_NETWORK.md, docs/NODE_NETWORK.md, docs/manual/11-hosting.md, packaging/workflows/realm-image.yml, packaging/workflows/hotpatch.yml, packaging/workflows/uptime.yml
 Made by dev/sync_repos.py. Edit the source, not this copy.
