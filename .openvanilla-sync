@@ -1,5 +1,5 @@
 source: Open Vanilla
-commit: 0152b7c18813140b2648a9379436aa493a715dc3
-subject: Touch: a game button presses in under the finger and lets out on lift
+commit: d1583ef7d31897a766fff1be3824449f73b01e8d
+subject: Release 1.38.0
 paths: realm, hetzner, relay, studio, solo, studio_server.py, server_control.py, openvanilla_server.py, asset_server.py, set_realm.py, authcheck.py, Host a Realm.bat, Play Solo.bat, tools/gm, tools/warfront, tools/relay_smoke.py, tools/sync_patchz.py, docs/P2P_NETWORK.md, docs/NODE_NETWORK.md, docs/manual/11-hosting.md, packaging/workflows/realm-image.yml, packaging/workflows/hotpatch.yml, packaging/workflows/uptime.yml
 Made by dev/sync_repos.py. Edit the source, not this copy.
