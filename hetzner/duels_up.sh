@@ -73,7 +73,8 @@ CONF_KEYS=(
   "OpenVanilla.Duels.Arena=gurubashi"            # Gurubashi Arena on map 900 (patch 0024; arena_map below)
   "OpenVanilla.Duels.Arena.Map=900"
   "OpenVanilla.Duels.Hub=\"0 -9467.1 24.9 56.7 5.18\""      # the Lion's Pride Inn, Goldshire: the hangout
-  "OpenVanilla.Duels.Hub.Fence=\"-9464 14 28\""             # kept within 28 yards of the inn's middle
+  "OpenVanilla.Duels.Hub.Fence=\"-9464 14 84\""             # kept within 84 yards of the inn's middle (the yard and the road)
+  "OpenVanilla.Duels.PracticeBot=8"              # a practice duel alone for 8 s gets a bot (patch 0026)
   "OpenVanilla.Duels.AutoQueue=d1"               # queued from the inn after 4 idle seconds (rated)
   "OpenVanilla.Duels.Consumables=\"13446:3 13444:3 14530:2\""  # healing and mana potions, bandages every round
   "OpenVanilla.Duels.Glicko=1"
@@ -138,7 +139,14 @@ write_conf() {
 
 fetch() {  # the Duels and Warfront files from the repo
   mkdir -p "$DCP/legend"
-  get() { curl -fsSL "$RAW/$1" -o "$2.new" && mv "$2.new" "$2"; }
+  # from this checkout (what "git pull" brought) when the file is in it; else from the stable branch.
+  # 2026-10-21: update took stable's older duels_lean.sql while the checkout had the fix, and the
+  # world server crashed at start again.
+  local REPO; REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+  get() {
+    if [ -f "$REPO/$1" ]; then cp "$REPO/$1" "$2.new" && mv "$2.new" "$2"
+    else curl -fsSL "$RAW/$1" -o "$2.new" && mv "$2.new" "$2"; fi
+  }
   get realm/duels/patch-Z.MPQ "$DCP/patch-Z.MPQ"
   get realm/duels/duels_characters.sql "$DCP/duels_characters.sql"
   get realm/duels/duels_world.sql "$DCP/duels_world.sql"
@@ -402,6 +410,13 @@ services:
     environment:
       OPENVANILLA_GUESTS: "1"        # play free as a guest, straight from the website
       DISCORD_SIGNIN: "off"          # Hero Key, Google or a password; Discord stays the community
+      # This service is also on the live realm's network (for the live Caddy), where "mariadb",
+      # "mangosd" and "realmd" are LIVE's: it must reach its own by names only this stack has.
+      # (2026-10-21: it reached live's, so its database and console logins were refused.)
+      MARIADB_URL: "mysql://realmweb:\${DB_REALMWEB_PASSWORD}@owduels-mariadb:3306/classicrealmd"
+      SOAP_URL: "http://owduels-mangosd:7878/"
+      REALMD_HOST: "owduels-realmd"
+      MANGOSD_HOST: "owduels-mangosd"
     volumes:
       - $LIVE_CP/bridge.js:/app/www/bridge.js:ro
       - $LIVE_CP/bridge.js.br:/app/www/bridge.js.br:ro
@@ -415,8 +430,19 @@ services:
         aliases: [owduels-realm]
   mangosd:
     image: $MANGOS_IMAGE
+    networks:
+      default:
+        aliases: [owduels-mangosd]
     volumes:
       - $LG:/live:ro      # the live realm's maps, shared read-only
+  mariadb:
+    networks:
+      default:
+        aliases: [owduels-mariadb]
+  realmd:
+    networks:
+      default:
+        aliases: [owduels-realmd]
 networks:
   live:
     external: true
@@ -509,7 +535,8 @@ update)
   say "3/4 SQL and config"; apply_sql; write_conf; timers
   say "4/4 restart (the web service reads the patch's file table at start)"
   # --no-deps: the one-off db-init job is for the first install only
-  cd "$S"; override; docker compose up -d --no-deps realmd && docker compose up -d --no-deps --force-recreate realm mangosd && write_version
+  cd "$S"; override; docker compose pull -q realm mangosd || echo "   (could not pull new images: starting the ones here)"
+  docker compose up -d --no-deps realmd && docker compose up -d --no-deps --force-recreate realm mangosd && write_version
   caddy_site
   wait_healthy mangosd 900 && echo "Duels is up"
   TOKEN=$(docker compose exec -T realm cat /state/setup-token 2>/dev/null || true)
