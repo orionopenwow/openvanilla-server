@@ -49,8 +49,10 @@ results and rules, and touches only its own characters:
 | `realm/mangos/0050-openvanilla-bossfights.patch` | The world server: `OpenVanilla/BossFights.{h,cpp}` (lobby, commands, queue, runs) and `OpenVanilla/BossFightsLogic.h` (pure rules), plus hooks in `World.cpp`, `WorldSession.cpp`, `Unit.cpp` (damage taken), `Creature.cpp` (health), `MovementHandler.cpp` (raid entry checks), `Warfront.cpp` (commands, updates, armory tier) and `WarfrontArena.{h,cpp}` (Duels' hangout skips raiders; Duels' `join` makes a raider a dueler again; `LeaveQueue` for the switch the other way). Made on 0001-0039. |
 | `bossfights_world.sql` | Short John Mithril becomes friendly to both factions. Two Raid Quartermasters stand in the arena (reagents, ammunition, bandages). The consumables a run gives sell for nothing. |
 | `bossfights_lean.sql` | The world keeps only the hangout (the same 70 yards as `duels_lean.sql`) and every spawn on the raid maps. |
-| `bossfights_characters.sql` | `bossfights_player`, `bossfights_account`, `bossfights_progress`, `bossfights_result` (with `bots`), `bossfights_now`. |
-| `tests/` | `sh realm/bossfights/tests/run.sh` runs the pure rules' tests (no server). |
+| `realm/mangos/0051-openvanilla-bossfights-selftest.patch` | The self-test's server side (off unless `OpenVanilla.BossFights.SelfTest = 1`): test accounts, their own queue, `size=N`, the `test` commands, `OpenVanilla/BossFightsSelfTest.h` (pure rules). For everyone: the waiting line's position, and the refresh on leaving a run. See "Self-test". |
+| `bossfights_characters.sql` | `bossfights_player`, `bossfights_account`, `bossfights_progress`, `bossfights_result` (with `bots` and `test`), `bossfights_now`. |
+| `tests/` | `sh realm/bossfights/tests/run.sh` runs the pure rules' tests and the self-test's (no server). |
+| `hetzner/bossfights_check.sh` | The self-test runner: two test accounts play the mode with Herald Lite; a public report. |
 | `hetzner/bossfights_up.sh` | An add-on to `duels_up.sh`'s stack: copies the raids back, runs the SQL, adds `OpenVanilla.BossFights = 1`, runs the website feed (`bossfights_live.json`) and `testbots`. |
 
 ## How a run works
@@ -250,3 +252,218 @@ bash hetzner/bossfights_up.sh update
 ```
 
 `testbots off` deletes the bots and puts the GM levels back. `update` puts RaidSize 10 and RelaxRoles 120 back.
+
+## Ready raider
+
+
+A character in Boss Fights doesn't need any setup. About 3 seconds after it arrives in the Gurubashi hangout, the realm makes it ready. That happens when it is alive, out of combat and inside the fence. The realm makes it ready again after every run, and tops up its bags every minute.
+
+### What the realm does
+
+1. **Level.** A character below `OpenVanilla.BossFights.Ready.Level` (default 60) is raised to that level. The realm then:
+   - teaches the class's spells (AutoLearn);
+   - sets every weapon skill, Defense and Unarmed to their maximum, the same as a duelist gets.
+2. **Bags.** Each empty bag slot gets a Traveler's Backpack (`.Ready.Bag`, item 4500).
+3. **Talents.** The realm makes active the spec for the talent tree the character's role plays (see below). It uses that tree's raid build (51 points) from the playerbots' PvE builds. Specs the character has never used also get raid builds, not PvP ones.
+   - **A player's own choice is never overwritten.** The realm only picks while either of these holds:
+     - the character's talents still match a template and the player has never saved a spec;
+     - the talents are still exactly what Boss Fights set last time (the `bossfights_ready` row).
+   - Changing role (`.wnl wf bf role`) picks again, under the same rule.
+4. **Gear.** Every gear set of the class goes in the bags (Warfront's kits). The role's set is worn in three cases:
+   - the character is (nearly) bare;
+   - the first time, if it wears only gear-set pieces;
+   - later, if it still wears the set Boss Fights put on.
+
+   Anything else the character wears is the player's own and stays on.
+5. **Consumables.** These are topped up when the character arrives, after every run, and every minute:
+   - everyone: potions, flasks, elixirs, food and bandages;
+   - mana users: water;
+   - each class: its reagents or poisons;
+   - hunters: arrows or shells to match the ranged weapon worn (1000, set as the ammunition).
+
+   Nothing given sells for money (`bossfights_world.sql`).
+6. **Action bars.** The server lays these out, so they're right before any addon runs:
+
+   | Bar | What goes on it |
+   |---|---|
+   | Main bar (keys 1 to =) | The active spec's raid abilities |
+   | Bottom left | The class's buffs, auras, forms and utility |
+   | Bottom right, right, right 2 | Every other class spell |
+   | Stance, form and stealth bars | A copy of the main bar |
+
+   - Abilities only go on **empty buttons**.
+   - A character under 10 minutes played whose bars Boss Fights hasn't laid out yet has its bars cleared first. At that age only the realm's starter layout is on them.
+   - The Boss Fights addon turns all four extra bars on.
+   - The Duels addon doesn't lay out its PvP bars or put on its "best kit" for a raider.
+   - On the server, Duels' hangout doesn't set up a character until Boss Fights has checked it (`BossFights::Pending`).
+7. **Refresh after a run**, back in the hangout:
+   - health and mana full, and rage at 0;
+   - every cooldown reset;
+   - the run's world buffs removed;
+   - bags topped up.
+
+Playerbots are left alone; the bot factory gears them.
+
+**Role → talent tree:**
+
+| Class | Tank | Healer | Damage |
+|---|---|---|---|
+| Warrior | Protection | Fury | Fury |
+| Paladin | Protection | Holy | Retribution |
+| Priest | Shadow | Holy | Shadow |
+| Shaman | Elemental | Restoration | Elemental |
+| Druid | Feral | Restoration | Feral |
+| Hunter, Rogue, Mage, Warlock | Marksmanship, Combat, Frost, Destruction | (same) | (same) |
+
+### The ready check: `.wnl wf bf ready`
+
+If the character is in Boss Fights and in the hangout, this makes it ready first. Then it answers on addon tag `BF` with one line of `key=value` pairs, plus a chat line:
+
+```
+ready,level=60,spec=Protection,spent=51,free=0,sets=3,setsof=3,worn=warrior-fury-h,slots=61,buttons=64,consumables=13,wanted=13,missing=-,ok=1
+```
+
+| Key | Meaning |
+|---|---|
+| level | the character's level |
+| spec | the active spec's name, spaces as `_` (`Beast_Mastery`) |
+| spent, free | talent points spent and unspent |
+| sets | the class's gear sets the character has complete (in the bags or worn) |
+| setsof | the class's gear sets |
+| worn | the kit key worn whole (`warrior-fury-h`), `own` (gear that isn't from a set), `mixed` (pieces of several sets) or `-` (fewer than 8 items worn) |
+| slots | empty slots in the backpack and the bags |
+| buttons | action buttons in use (every bar) |
+| consumables | wanted items at their count |
+| wanted | items wanted (potions, flasks, food, reagents, ammunition) |
+| missing | item ids short, joined with `:` (at most 12), or `-` |
+| ok | `1` when the character is ready |
+
+`ok` is `1` when all of these hold:
+- level is at least `.Ready.Level`;
+- talent points are spent;
+- `sets` = `setsof` (every set is in the bags or worn);
+- something is worn;
+- at least 12 action buttons are set;
+- `consumables` = `wanted`.
+
+The self-test (0051, `devkit/heraldlite/scenarios/bossfights_selftest.txt`) reads `level`, `spent`, `free`, `sets`, `buttons` and `consumables` by key. Its checks match this line:
+
+| Key | Check |
+|---|---|
+| level | = 60 |
+| spent | > 0 |
+| free | = 0 |
+| sets | ≥ 1 |
+| buttons | ≥ 12 |
+| consumables | > 0 |
+
+A stricter check is `ok == 1`, together with `consumables == wanted`.
+
+The realm sends the same line to the addon by itself whenever it makes a raider ready, and after every run. The addon shows it on the Armory tab's **Ready check** (with a **Check again** button), and pops a "Ready for raids" toast. `/bf ready` asks for it.
+
+### Settings
+
+All of these are on by default while `OpenVanilla.BossFights = 1`.
+
+| Setting | Default | |
+|---|---|---|
+| `OpenVanilla.BossFights.Ready` | 1 | 0 turns the whole ready raider off |
+| `.Ready.Talents`, `.Ready.Gear`, `.Ready.Bars` | 1 | each part on or off |
+| `.Ready.Level` | 60 | 0: levels aren't raised |
+| `.Ready.Bag` | 4500 | the bag for an empty bag slot (0: none) |
+| `.Ready.Ammo` | 1000 | a hunter's arrows or shells |
+| `.Ready.Consumables` | `13446:10 13444:10 13510:1 13511:1 13512:1 13452:5 9206:5 13454:5 20452:10 8932:20 14530:20` | everyone (counts up to 200) |
+| `.Ready.Consumables.Mana` | `8766:20` | mana users |
+| `.Ready.Consumables.<Class>` | Rogue `8928:20 20844:20 5140:20`, Mage `17020:20`, Priest `17029:20`, Paladin `21177:40 17033:5`, Druid `17026:20 17038:5`, Shaman `17030:5`, Warlock `6265:6` | each class's own |
+
+Characters table `bossfights_ready` (`bossfights_characters.sql`) keeps what Boss Fights set:
+- `spec` and `talents`: the spec it made active and the talents it spent;
+- `kit`: the set it put on;
+- `bars`: whether it laid out the bars;
+- `readied`: when.
+
+Without the table, the realm picks again at every login, and the server log says the table is missing.
+
+### Manual check (add to the smoke test)
+
+| # | What | Do | Expect |
+|---|---|---|---|
+| R1 | A new raider is ready | Make a new character from the site's Fight now (Boss Fights), and wait 5 s in Gurubashi. | Level 60. Talent frame: the role's tree with 51 points. All 4 extra bars on, with the spec's abilities on keys 1 to =. The bags hold every gear set of the class plus potions, flasks, food and reagents. The Armory tab says **Ready.** and a "Ready for raids" toast shows. |
+| R2 | The role decides | `/bf`, Queue tab: **Tank** (a warrior). | Within seconds: Protection active, the warrior set worn, and Protection's abilities on the empty buttons. |
+| R3 | Your choice stays | Switch to another spec yourself (the talent frame's spec row), then change role. | Your spec stays. `.wnl wf bf ready` still answers `ok=1`. |
+| R4 | Refreshed after a run | Clear (or leave) a run and come back to Gurubashi. | Full health and mana, cooldowns reset, no world buffs left, and the bags topped up. `.wnl wf bf ready` answers `…,ok=1`. |
+| R5 | Duelers untouched | A Duels character (not in Boss Fights) in the same hangout. | Duels' PvP bars and kit as before. Nothing from Boss Fights' ready raider. |
+
+## Self-test
+
+Two test accounts play the whole mode on the server, with no one at a keyboard, and the result is public:
+https://openvanilla.app/community/bossfights_selftest.json. It runs every 2 hours and after every
+`bossfights_up.sh update`.
+
+**Turn it on (once, after a release with 0051):**
+
+```
+bash hetzner/bossfights_up.sh update            # the 0051 world server, the test column
+bash hetzner/bossfights_up.sh selftest on       # SelfTest = 1, a restart, the timer, a first run
+```
+
+`selftest now` runs it by hand (exit 0 when all passed); `selftest off` turns it off.
+
+**Who plays.** `hetzner/bossfights_check.sh` makes or repairs two game accounts, BFTEST1 and BFTEST2 (GM level
+0), straight in the Modes realm's own account table, with random passwords in
+`/etc/openvanilla-bossfights-test.env` (mode 600, never printed). Herald Lite makes their characters the first
+time: a Human Warrior (tank) and a Troll Priest (healer), level 60 because the Modes server starts everyone
+there. Nothing is made on the live realm or on a public sign-in page.
+
+**What makes them test accounts** (patch 0051, only with `OpenVanilla.BossFights.SelfTest = 1`; the names in
+`OpenVanilla.BossFights.TestAccounts`, `"BFTEST*"`):
+- They're in Boss Fights from their first login, so Duels' hangout code (its bots, rooms, ladders, auto-queue)
+  leaves them alone.
+- They queue in a pool of their own: never matched with a player, no role rule, and they may set the run's size
+  (`q onyxia size=2`). A player can't set a size.
+- Their runs aren't in "Raids now" or the live counts, and their results (`bossfights_result.test = 1`) aren't on
+  the boards, the in-game board or the website's feed.
+- Their own commands: `test state` (one `k=v` line: mode, hangout, waiting line, run, copy, map, tiers, aura,
+  health, mana, world buffs, consumables, level, faction, group), `test kill` (every encounter left: its boss
+  killed by the player, so the raid's script, loot and the encounter credit run as in a real kill), `test wipe`,
+  `test revive`, `test out` (a step past the fence) and `test reset` (progress, test results, leaver lock,
+  ticket, raid save). Anyone else gets `err,test`.
+
+**For everyone** (0051): the waiting line says where you stand (`q,...,<position>,<raid size>,<still needed>`
+and "Waiting line: 1 of 10" in chat), and leaving a run puts you back in the hangout ready: alive, full health
+and mana, the run's world buffs gone, cooldowns ready (the consumables stay in the bags). The tier aura is read
+again 5 s after a clear (the progress row is written in the background).
+
+**What it checks** (`devkit/heraldlite/scenarios/bossfights_selftest.txt`, about 4 minutes):
+1. The world server is up, Boss Fights and the self-test are on, the results table has its test column.
+2. The website's sign-in path: a guest of the Modes realm service (made once by the script, then resumed) gets
+   `/api/play`, whose realm must be realmd's (otherwise players see the realm list); the Boss Fights address
+   opens in Boss Fights (`?mode=boss`), once its DNS exists.
+3. A clean start (`test reset`), then both in Boss Fights in the Gurubashi hangout: level 60, the shared faction,
+   the fence brings a player back.
+4. Readiness (patch 0052, `.wnl wf bf ready`): level 60, talents spent and none free, gear sets in the bags, 12+
+   action buttons, consumables. Skipped ("ready patch not live") until 0052 answers. Its keys are read with
+   `field()`, so the line may be `k=v,...` or `k:v ...`; `BF_READY_LEVEL`, `_SPENT`, `_FREE`, `_SETS`,
+   `_BUTTONS`, `_CONSUMABLES` rename them.
+5. The waiting line: alone, "1 of 2" and no pop for 6 s; leaving and rejoining.
+6. The pop: one new copy of Onyxia's Lair, the same copy for both, a raid group, world buffs and consumables.
+7. A wipe is counted, everyone is brought back; the boss is killed; the run is cleared, tier 2 opens, the tier
+   aura is on.
+8. Both back in the hangout after the 30 s to loot, refreshed (alive, full health and mana, no world buffs,
+   out of combat); readiness again.
+9. A second run, tier 2 (fortified), in a different copy.
+10. Leaving early: the leaver gets the queue lock; the run ends when the last one leaves.
+11. The database: the two runs are stored as test runs; nothing in "Raids now"; the test characters are nowhere
+    in `bossfights_live.json`.
+
+**The report** (`/opt/openvanilla-herald/public/bossfights_selftest.json`): `ok`, `pass`/`fail`/`skipped`, the
+failures, every step with its time and detail, the runs' copy ids, the versions (repo commit, world server
+image, Herald Lite). Account and character names are replaced (Raider A, Raider B), addresses removed. The full
+Herald Lite report stays root-only in `/opt/openvanilla-bossfights/selftest-last.json`; one line per run goes
+to `selftest-history.tsv` there.
+
+**When it fails**: the report's `failures` names the scenario line (`bossfights_selftest.txt:<line> [a|b] <step>:
+<reason>`). The usual causes: the world server restarted mid-run (run it again), the test column missing (run
+`update`), a run left over (the next run's first steps leave it).
+
+The manual smoke test above still covers what the self-test can't: the windows, real players, bots in a raid.

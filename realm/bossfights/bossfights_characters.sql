@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS bossfights_result (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 -- (a table made before the bots column)
 ALTER TABLE bossfights_result ADD COLUMN IF NOT EXISTS bots TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER size;
+-- (0051) self-test runs (hetzner/bossfights_check.sh): never on the website or the boards
+ALTER TABLE bossfights_result ADD COLUMN IF NOT EXISTS test TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER bots;
 
 -- The runs going on now (the website's "Raids now"), kept by the world server.
 CREATE TABLE IF NOT EXISTS bossfights_now (
@@ -63,3 +65,16 @@ CREATE TABLE IF NOT EXISTS bossfights_now (
   PRIMARY KEY (run)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 -- (the world server starts with an empty table: a restart ends every run)
+
+-- The ready raider (realm/mangos/0052-openvanilla-bossfights-ready.patch): what Boss Fights set up for a character,
+-- so it never overrides the player's own choice later. spec/talents: the spec it made active and the talents it
+-- spent (changed since: the player's own). kit: the gear set it put on. bars: it laid out the action bars once.
+CREATE TABLE IF NOT EXISTS bossfights_ready (
+  guid INT UNSIGNED NOT NULL,
+  spec TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  talents TEXT NOT NULL,                         -- talentId:rank,... (as Boss Fights left them)
+  kit VARCHAR(64) NOT NULL DEFAULT '',
+  bars TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  readied INT UNSIGNED NOT NULL DEFAULT 0,       -- when it was first made ready
+  PRIMARY KEY (guid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
