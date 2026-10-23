@@ -172,7 +172,9 @@ hub() {
 }
 
 restart() {
-  cd "$S"; docker compose up -d --no-deps --force-recreate mangosd
+  # the newest world server image first (0050-0052 are compiled in by the realm-prebuild workflow)
+  cd "$S"; docker compose pull -q mangosd || echo "   (could not pull a new world server image: starting the one here)"
+  docker compose up -d --no-deps --force-recreate mangosd
   wait_healthy mangosd 900 && echo "the Modes world server is up"
 }
 
@@ -421,6 +423,12 @@ TXT
   ;;
 update)
   need_duels
+  # Duels first: the client patch (the Boss Fights addon is in it), the play page and both images. Its
+  # duels_lean.sql empties the raids, so Boss Fights copies them back below. SKIP_DUELS=1 skips it.
+  if [ "${SKIP_DUELS:-0}" != 1 ]; then
+    say "0/3 the Duels stack (client patch, play page, images)"
+    bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/duels_up.sh" update || echo "   (duels_up.sh update failed: going on with Boss Fights)"
+  fi
   say "1/3 files"; fetch
   # duels_up.sh update runs duels_lean.sql again, which empties the raids: copy them back every time
   say "2/3 spawns, SQL and settings"; restore_spawns; apply_sql; write_conf; hub; timer
