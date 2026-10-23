@@ -8,6 +8,7 @@
 #   bash duels_up.sh start | stop | status
 #   bash duels_up.sh live                            write duels_live.json once (a timer runs it every 20 s)
 #   bash duels_up.sh arena                           Gurubashi Arena's map 900 again (dbc, map links, client patch); restart after
+#   bash duels_up.sh gm NAME [LEVEL]                 a character's account (or account NAME) becomes GM LEVEL (3) on Duels
 #   bash duels_up.sh legend                          sign the duelists' Legends once (a timer runs it every 2 min)
 #
 # Layout:  /opt/wenilla-duels       the stack (compose project "owduels", its own databases and accounts)
@@ -80,7 +81,7 @@ CONF_KEYS=(
                                                  # 0 brings the queue, matches, rooms, betting and the bots back
   "OpenVanilla.Duels.PracticeBot=0"              # (8 with the queue: a practice duel alone for 8 s gets a bot, patch 0026)
   "OpenVanilla.Duels.PracticeBot.Player=1"       # a real player bot (the bot AI at level 60), the creature only if none comes (patch 0033)
-  "OpenVanilla.Duels.HubBots=0"                  # (9 later: nine player bots living in the hangout, patch 0035)
+  "OpenVanilla.Duels.HubBots=9"                  # nine player bots living in the hangout: they wander, sit AFK and duel each other (patch 0035)
   "OpenVanilla.Duels.HubBots.DuelSeconds=180"    # every 3 minutes or so two of them duel in the middle of the pit
   "OpenVanilla.Duels.Betting=0"                 # (1 with the queue: Duel Gold betting, spectators and stakes, patch 0027)
   "OpenVanilla.Duels.AutoQueue=off"              # no auto-queue: you queue from the Duels window (owner, 2026-10-22)
@@ -101,6 +102,8 @@ CONF_KEYS=(
   "Instance.UnloadDelay=60000"                   # a finished match's arena copy goes after a minute
   "AllowTwoSide.Interaction.Chat=1"              # the hangout is for everyone: talk, group, trade, whisper across factions
   "AllowTwoSide.Interaction.Channel=1"
+  "OpenVanilla.WorldChannel=1"                   # the World channel, everyone joins at login (patch 0007)
+  "OpenVanilla.WorldChannel.JoinGeneral=1"       # and General - Stranglethorn Vale, joined by the server at login (patch 0041)
   "AllowTwoSide.Interaction.Group=1"
   "AllowTwoSide.Interaction.Trade=1"
   "AllowTwoSide.WhoList=1"
@@ -126,11 +129,11 @@ CONF_KEYS=(
   "SkipCinematics=2"
   "AlwaysMaxSkillForLevel=1"
 )
-# no realm bots and no auction-house bot on Duels: everyone in the hangout is a person, and the world stays
-# small. The bot AI is on only for the realm's own bots: the practice bot (patch 0033), one logged in for
+# no random bots and no auction-house bot on Duels, so the world stays small. The bot AI is on only for the
+# realm's own bots: the practice bot (patch 0033), one logged in for
 # a practice duel when nobody else is waiting, and the hangout's nine (patch 0035). No random bots.
 BOT_KEYS=(
-  "AiPlayerbot.Enabled=0"                        # (1 with the practice and hangout bots)
+  "AiPlayerbot.Enabled=1"                        # for the hangout's nine bots (and the practice bot when the queue is back)
   "AiPlayerbot.RandomBotAutologin=0"
   "AiPlayerbot.MinRandomBots=0"
   "AiPlayerbot.MaxRandomBots=0"
@@ -196,6 +199,43 @@ apply_sql() {
   done
   sqle classicrealmd "UPDATE realmlist SET name = 'Duels', icon = 1 WHERE id = 1"
   sqle classicmangos "SELECT COUNT(DISTINCT kit) AS kits FROM warfront_kit"
+}
+
+# The GM console's Duels tab (hetzner/gm_console.py, Server.bat option G) runs commands on this world
+# server as GMDESK, a console account (GM 3) with a random password kept in /etc/openvanilla-duels-gm.env
+# (mode 600, never printed). Its console is published on 127.0.0.1:17879 only (override below).
+GM_ENV=/etc/openvanilla-duels-gm.env
+gm_desk() {
+  if ! grep -q '^SOAP_PASS=' "$GM_ENV" 2>/dev/null; then
+    ( umask 077; printf 'SOAP_URL=http://127.0.0.1:17879/\nSOAP_USER=GMDESK\nSOAP_PASS=%s\n' "$(openssl rand -hex 16 | tr a-f A-F)" > "$GM_ENV" )
+  fi
+  local P SV
+  P=$(sed -n 's/^SOAP_PASS=//p' "$GM_ENV" | tail -n 1)
+  SV=$(OV_P="$P" python3 - <<'PY'
+import hashlib, os
+N = int("894B645E89E1535BBDAD5B8B290650530801B18EBFBF5E8FAB3C82872A3E9BB7", 16)
+salt = os.urandom(32)
+h1 = hashlib.sha1(f"GMDESK:{os.environ['OV_P'].upper()}".encode()).digest()
+x = int.from_bytes(hashlib.sha1(salt[::-1] + h1).digest(), "little")
+print(salt.hex().upper(), pow(7, x, N).to_bytes(32, "big").hex().upper())
+PY
+)
+  sqle classicrealmd "INSERT INTO account (username, gmlevel, v, s) VALUES ('GMDESK', 3, '${SV#* }', '${SV%% *}')
+    ON DUPLICATE KEY UPDATE gmlevel = 3, v = VALUES(v), s = VALUES(s)" >/dev/null \
+    && echo "   GM console account GMDESK checked (the Duels tab of Server.bat option G)" \
+    || echo "   (could not write the GMDESK console account: the Duels tab can read but not run commands)"
+}
+
+# gm NAME [LEVEL]: a character's game account (or the account NAME itself) becomes GM LEVEL (3) on Duels.
+gm_level() {
+  local who="$1" lvl="${2:-3}"
+  [[ "$who" =~ ^[A-Za-z0-9_-]{2,32}$ ]] || { echo "usage: $0 gm CHARACTER_OR_ACCOUNT [0-3]"; return 2; }
+  [[ "$lvl" =~ ^[0-3]$ ]] || { echo "the GM level is 0 to 3"; return 2; }
+  sqle classicrealmd "UPDATE account SET gmlevel = $lvl WHERE username = UPPER('$who')
+      OR id = (SELECT account FROM classiccharacters.characters WHERE name = '$who' LIMIT 1);
+    SELECT a.username AS account, a.gmlevel FROM account a WHERE a.username = UPPER('$who')
+      OR a.id = (SELECT account FROM classiccharacters.characters WHERE name = '$who' LIMIT 1)"
+  echo "   Log out to the character screen and back in; then .gm on to help, .gm off to play."
 }
 
 # The page keys its saved patch-Z files on /ow/data-version.json (realm/www/syncread.js). /ow/ is the
@@ -503,6 +543,8 @@ services:
         aliases: [owduels-realm]
   mangosd:
     image: $MANGOS_IMAGE
+    ports:
+      - "127.0.0.1:17879:7878"   # its console, for the GM console's Duels tab: this server only
     networks:
       default:
         aliases: [owduels-mangosd]
@@ -584,6 +626,7 @@ install)
   arena_map
   say "6/8 Duels SQL and mangosd.conf"
   apply_sql
+  gm_desk
   write_conf
   say "7/8 images; the live Caddy serves https://$DOMAIN"
   override
@@ -605,7 +648,7 @@ update)
   [ -e "$S/.env" ] || { echo "no Duels stack (bash $0 install)"; exit 1; }
   say "1/4 Duels files"; fetch
   say "2/4 client patch and Gurubashi Arena (map 900)"; install_patch; arena_map
-  say "3/4 SQL and config"; apply_sql; write_conf; timers
+  say "3/4 SQL and config"; apply_sql; gm_desk; write_conf; timers
   say "4/4 restart (the web service reads the patch's file table at start)"
   # --no-deps: the one-off db-init job is for the first install only
   cd "$S"; override; docker compose pull -q realm mangosd || echo "   (could not pull new images: starting the ones here)"
@@ -622,6 +665,9 @@ start)
   wait_healthy mangosd 900 && echo "Duels is up" ;;
 stop)
   cd "$S"; docker compose stop; echo "Duels is stopped" ;;
+gm)
+  [ -e "$S/.env" ] || { echo "no Duels stack (bash $0 install)"; exit 1; }
+  gm_level "${2:-}" "${3:-3}" ;;
 status)
   [ -e "$S/.env" ] || { echo "no Duels stack (bash $0 install)"; exit 0; }
   cd "$S"; docker compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Health}}'
@@ -634,5 +680,5 @@ live)
 legend)
   [ -e "$S/.env" ] || exit 0
   write_legend ;;
-*) echo "usage: $0 install [domain] | update | start | stop | status | live | legend | arena"; exit 2 ;;
+*) echo "usage: $0 install [domain] | update | start | stop | status | live | legend | arena | gm NAME [LEVEL]"; exit 2 ;;
 esac
